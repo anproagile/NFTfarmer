@@ -444,6 +444,7 @@ contract MoboxFarm is Ownable, ReentrancyGuard {
         if (keyAmount > 0) {
             rewardStore[msg.sender] = 0;
             IERC20(keyToken).safeTransfer(msg.sender, keyAmount);
+             emit RewardPaid(msg.sender, keyAmount);
         }
     }
 
@@ -455,6 +456,7 @@ contract MoboxFarm is Ownable, ReentrancyGuard {
         if (keyAmount > 0) {
             rewardStore[user_] = 0;
             IERC20(keyToken).safeTransfer(user_, keyAmount);
+            emit RewardPaid(user_, keyAmount);
         }
     }
 
