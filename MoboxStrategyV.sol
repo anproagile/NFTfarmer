@@ -279,11 +279,7 @@ contract MoboxStrategyV is Pausable, ReentrancyGuard {
      * If already over leverage, redeem max amt redeemable, then use it to repay borrow.
      * Need call updateBalance before call this function
      */
-    function _deleverageOnce() internal {
-        if (!recoverPublic) {
-            require(_msgSender() == strategist, "not strategist");
-        }
-
+    function _deleverageOnce(bool) internal {
         uint256 balanceBeforeSupply = IERC20(wantToken).balanceOf(address(this));
         uint256 totalBorrow = uint256(venusData.totalBorrow);
         uint256 supplyTargeted = totalBorrow.mul(10000).div(borrowRate);
@@ -314,11 +310,19 @@ contract MoboxStrategyV is Pausable, ReentrancyGuard {
     }
 
     function deleverageOnce() external {
+        if (!recoverPublic) {
+            require(_msgSender() == strategist, "not strategist");
+        }
+
         updateBalance();
         _deleverageOnce();
     }
 
     function deleverageUntilNotOverLevered() external {
+        if (!recoverPublic) {
+            require(_msgSender() == strategist, "not strategist");
+        }
+        
         updateBalance();
         _deleverageUntilNotOverLevered();
     }

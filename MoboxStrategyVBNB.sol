@@ -291,10 +291,6 @@ contract MoboxStrategyVBNB is Pausable, ReentrancyGuard {
      * Need call updateBalance before call this function
      */
     function _deleverageOnce() internal {
-        if (!recoverPublic) {
-            require(_msgSender() == strategist, "not strategist");
-        }
-
         uint256 balanceBeforeSupply = wantLocal();
         
         uint256 totalBorrow = uint256(venusData.totalBorrow);
@@ -326,11 +322,19 @@ contract MoboxStrategyVBNB is Pausable, ReentrancyGuard {
     }
 
     function deleverageOnce() external {
+        if (!recoverPublic) {
+            require(_msgSender() == strategist, "not strategist");
+        }
+
         updateBalance();
         _deleverageOnce();
     }
 
     function deleverageUntilNotOverLevered() external {
+        if (!recoverPublic) {
+            require(_msgSender() == strategist, "not strategist");
+        }
+
         updateBalance();
         _deleverageUntilNotOverLevered();
     }
