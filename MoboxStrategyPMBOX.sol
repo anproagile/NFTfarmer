@@ -10,17 +10,6 @@ import "./comm/ERC20.sol";
 import "./comm/IERC20.sol";
 import "./comm/SafeERC20.sol";
 
-interface IPancakeMasterChef {
-    // Info of each MasterChef staking pool
-    function poolInfo(uint256 _pid) external returns(address, uint256, uint256, uint256);
-    // Deposit LP tokens to Pancake MasterChef for CAKE allocation
-    function deposit(uint256 _pid, uint256 _amount) external;
-    // Withdraw LP tokens from Pancake MasterChef
-    function withdraw(uint256 _pid, uint256 _amount) external;
-    // User Info of MasterChef
-    function userInfo(uint256 _pid, address _user) external returns(uint256, uint256);
-}
-
 interface IPancakeSwapRouter {
     function addLiquidity(
         address tokenA,
@@ -52,7 +41,7 @@ interface IPancakeSwapRouter {
     ) external;
 }
 
-contract MoboxStrategyP is Pausable, ReentrancyGuard {
+contract MoboxStrategyPMBOX is Pausable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
 
@@ -71,17 +60,12 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
     uint256 public wantTotal;
 
     address public moboxFarm;
-    uint256 public pancakePid;
     address public wantToken;
-    address public tokenA;
-    address public tokenB;
     address public strategist;      // Control investment strategies
     address public buyBackPool;
     address public devAddress;
     uint256 public buyBackRate;
     uint256 public devFeeRate;
-    bool public recoverPublic;
-    uint256 public maxMarginTriggerDeposit;
 
     constructor() public {
 
@@ -90,42 +74,24 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
     function init(
         address moboxFarm_,
         address strategist_,
-        uint256 pId_,
         address wantToken_,
-        address tokenA_,
-        address tokenB_,
         address buyBackPool_,
         address devAddress_,
         uint256 buyBackRate_,
-        uint256 devFeeRate_,
-        uint256 margin_
+        uint256 devFeeRate_
     ) external onlyOwner {
-        require(pancakePid == 0 && moboxFarm == address(0), "may only be init once");
-        require(pId_ > 0 && moboxFarm_ != address(0) && buyBackPool_ != address(0), "invalid param");
+        require(moboxFarm == address(0), "may only be init once");
+        require(moboxFarm_ != address(0) && buyBackPool_ != address(0), "invalid param");
         require(buyBackRate_ < maxBuyBackRate && devFeeRate_ < maxDevFeeRate, "invalid param");
         moboxFarm = moboxFarm_;
         strategist = strategist_;
-        pancakePid = pId_;
         wantToken = wantToken_;
-        tokenA = tokenA_;
-        tokenB = tokenB_;
         buyBackPool = buyBackPool_;
         devAddress = devAddress_;
         buyBackRate = buyBackRate_;
         devFeeRate = devFeeRate_;
-        maxMarginTriggerDeposit = margin_;
 
         transferOwnership(moboxFarm_);
-
-        // MasterChef and PancakeRouter are trusted contracts
-        IERC20(wantToken_).safeApprove(pancakeFarmer, uint256(-1)); 
-        IERC20(cake).safeApprove(pancakeRouter, uint256(-1));
-        if (tokenA_ != cake) {
-            IERC20(tokenA_).safeApprove(pancakeRouter, uint256(-1));
-        }
-        if (tokenB_ != cake) {
-            IERC20(tokenB_).safeApprove(pancakeRouter, uint256(-1));
-        }
     }
 
     function getTotal() external view returns(uint256 wantTotal_, uint256 sharesTotal_) {
@@ -148,11 +114,6 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
         wantTotal = wantTotal.add(amount_);
         shareTotal = shareTotal.add(shareAdd);
 
-        uint256 lpAmount = IERC20(wantToken).balanceOf(address(this));
-        if (lpAmount >= maxMarginTriggerDeposit) {
-            IPancakeMasterChef(pancakeFarmer).deposit(pancakePid, lpAmount);
-        }
-
         return shareAdd;
     }
 
@@ -164,16 +125,17 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
         returns(uint256) 
     {
         require(amount_ > 0 && feeRate_ <= 50, "invalid param");
-        uint256 wantAmount = amount_ > wantTotal ? wantTotal : amount_;
         uint256 lpBalance = IERC20(wantToken).balanceOf(address(this));
-        if (lpBalance < wantAmount) {
-            IPancakeMasterChef(pancakeFarmer).withdraw(pancakePid, wantAmount.sub(lpBalance));
-            lpBalance = IERC20(wantToken).balanceOf(address(this));
+
+        if (wantTotal > lpBalance) {
+            wantTotal = lpBalance;
         }
 
-        if (wantAmount > lpBalance) {
-            wantAmount = lpBalance;
+        uint256 wantAmount = amount_;
+        if (wantAmount > wantTotal) {
+            wantAmount = wantTotal;
         }
+
         // shareSub / shareTotal = wantAmount / wantTotal;
         uint256 shareSub = wantAmount.mul(shareTotal).div(wantTotal);
         wantTotal = wantTotal.sub(wantAmount);
@@ -215,80 +177,11 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
     }
 
     function harvest() whenNotPaused external {
-        if (!recoverPublic) {
-            require(_msgSender() == strategist, "not strategist");
-        }
-        IPancakeMasterChef(pancakeFarmer).withdraw(pancakePid, 0);
-        uint256 cakeAmount = IERC20(cake).balanceOf(address(this));
-        
-        uint256 lpAmountBeforeHarvest = IERC20(wantToken).balanceOf(address(this));
-        if (cakeAmount > 0) {
-            uint256 buyBackAmount = cakeAmount.mul(buyBackRate).div(10000);
-            if (buyBackAmount > 0) {
-                IERC20(cake).safeTransfer(buyBackPool, buyBackAmount);
-            }
-            uint256 devAmount = cakeAmount.mul(devFeeRate).div(10000);
-            if (devAmount > 0) {
-                IERC20(cake).safeTransfer(devAddress, devAmount);
-            }
-
-            cakeAmount = cakeAmount.sub(buyBackAmount).sub(devAmount);
-            if (cakeAmount > 0) {
-                // swap cake to tokenA and tokenB
-                if (cake != tokenA) {
-                    IPancakeSwapRouter(pancakeRouter).swapExactTokensForTokensSupportingFeeOnTransferTokens(
-                        cakeAmount.div(2),
-                        0,
-                        _makePath(cake, tokenA),
-                        address(this),
-                        block.timestamp + 60
-                    );
-                }
-
-                if (cake != tokenB) {
-                    IPancakeSwapRouter(pancakeRouter).swapExactTokensForTokensSupportingFeeOnTransferTokens(
-                        cakeAmount.div(2),
-                        0,
-                        _makePath(cake, tokenB),
-                        address(this),
-                        block.timestamp + 60
-                    );
-                }
-                uint256 tokenAAmount = IERC20(tokenA).balanceOf(address(this));
-                uint256 tokenBAmount = IERC20(tokenB).balanceOf(address(this));
-                if (tokenAAmount > 0 && tokenBAmount > 0) {
-                    IPancakeSwapRouter(pancakeRouter).addLiquidity(
-                        tokenA,
-                        tokenB,
-                        tokenAAmount,
-                        tokenBAmount,
-                        0,
-                        0,
-                        address(this),
-                        now + 60
-                    ); 
-                }
-            } 
-        }
-
-        uint256 lpAmountAfterHarvest = IERC20(wantToken).balanceOf(address(this));
-        // Deposit the unstaked LP and the reinvested LP into pancake together
-        if (lpAmountAfterHarvest > lpAmountBeforeHarvest) {
-            wantTotal = wantTotal.add(lpAmountAfterHarvest.sub(lpAmountBeforeHarvest));
-            IPancakeMasterChef(pancakeFarmer).deposit(pancakePid, lpAmountAfterHarvest);
-        } 
+       
     }
-    /**
-     *  @dev Stake the user deposits in but unstaked LP to Pancake for mining (LP directly transferred to this strategy will be treated as 'dustToken')
-     * If the number of LPs is too small, they will be processed together in the next havest
-     */
+
     function farm() external {
-        if (!recoverPublic) {
-            require(_msgSender() == strategist, "not strategist");
-        }
-        
-        uint256 lpAmount = IERC20(wantToken).balanceOf(address(this));
-        IPancakeMasterChef(pancakeFarmer).deposit(pancakePid, lpAmount);
+
     } 
 
     /**
@@ -297,12 +190,6 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
     modifier onlyStrategist() {
         require(_msgSender() == strategist, "not strategist");
         _;
-    }
-
-    function rebalance() external onlyStrategist {
-        uint256 amount;
-        (amount,) = IPancakeMasterChef(pancakeFarmer).userInfo(pancakePid, address(this));
-        IPancakeMasterChef(pancakeFarmer).withdraw(pancakePid, amount);
     }
 
     /**
@@ -335,14 +222,6 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
         require(buyBackRate_ <= maxBuyBackRate && devFeeRate_ <= maxDevFeeRate, "invalid param");
         buyBackRate = buyBackRate_;
         devFeeRate = devFeeRate_;
-    }
-
-    function setRecoverPublic(bool val_) external onlyStrategist {
-        recoverPublic = val_;
-    } 
-
-    function setMargin(uint256 margin_) external onlyStrategist {
-        maxMarginTriggerDeposit = margin_;
     }
 
     function pause() external onlyStrategist {
