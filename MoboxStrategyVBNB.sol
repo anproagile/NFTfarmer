@@ -92,10 +92,6 @@ contract MoboxStrategyVBNB is Pausable, ReentrancyGuard {
     uint256 public maxMarginTriggerDeposit;
     
 
-    constructor() public {
-
-    }
-
     receive() external payable {}
 
     function init(
@@ -107,7 +103,7 @@ contract MoboxStrategyVBNB is Pausable, ReentrancyGuard {
         uint256 buyBackRate_,
         uint256 devFeeRate_,
         uint256 margin_
-    ) external {
+    ) external onlyOwner {
         require(moboxFarm == address(0), "may only be init once");
         require(vToken_ != address(0) && moboxFarm_ != address(0) && buyBackPool_ != address(0), "invalid param");
         require(buyBackRate_ < maxBuyBackRate && devFeeRate_ < maxDevFeeRate, "invalid param");
@@ -321,7 +317,7 @@ contract MoboxStrategyVBNB is Pausable, ReentrancyGuard {
         }
     }
 
-    function deleverageOnce() external {
+    function deleverageOnce() external nonReentrant {
         if (!recoverPublic) {
             require(_msgSender() == strategist, "not strategist");
         }
@@ -330,7 +326,7 @@ contract MoboxStrategyVBNB is Pausable, ReentrancyGuard {
         _deleverageOnce();
     }
 
-    function deleverageUntilNotOverLevered() external {
+    function deleverageUntilNotOverLevered() external nonReentrant {
         if (!recoverPublic) {
             require(_msgSender() == strategist, "not strategist");
         }
@@ -390,7 +386,7 @@ contract MoboxStrategyVBNB is Pausable, ReentrancyGuard {
         }
     }
 
-    function harvest() whenNotPaused external {
+    function harvest() whenNotPaused nonReentrant external {
         if (!recoverPublic) {
             require(_msgSender() == strategist, "not strategist");
         }
@@ -419,13 +415,13 @@ contract MoboxStrategyVBNB is Pausable, ReentrancyGuard {
             0,
             _makePath(venusXvs, wbnb),
             address(this),
-            block.timestamp + 60
+            block.timestamp.add(60)
         );
         
         _farm(false);
     }
 
-    function farm() external {
+    function farm() external nonReentrant {
         if (!recoverPublic) {
             require(_msgSender() == strategist, "not strategist");
         }
@@ -462,16 +458,18 @@ contract MoboxStrategyVBNB is Pausable, ReentrancyGuard {
                 0,
                 _makePath(dustToken_, venusXvs),
                 address(this),
-                block.timestamp + 60
+                block.timestamp.add(60)
             );
         }
     }
 
     function setStrategist(address strategist_) external onlyStrategist {
+        require(strategist_ != address(0), "addr 0");
         strategist = strategist_;
     }
 
     function setDevAddress(address newDev_) external onlyStrategist {
+        require(newDev_ != address(0), "addr 0");
         devAddress = newDev_;
     }
 

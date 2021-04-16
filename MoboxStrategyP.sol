@@ -83,10 +83,6 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
     bool public recoverPublic;
     uint256 public maxMarginTriggerDeposit;
 
-    constructor() public {
-
-    }
-
     function init(
         address moboxFarm_,
         address strategist_,
@@ -214,7 +210,7 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
         }
     }
 
-    function harvest() whenNotPaused external {
+    function harvest() whenNotPaused nonReentrant external {
         if (!recoverPublic) {
             require(_msgSender() == strategist, "not strategist");
         }
@@ -241,7 +237,7 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
                         0,
                         _makePath(cake, tokenA),
                         address(this),
-                        block.timestamp + 60
+                        block.timestamp.add(60)
                     );
                 }
 
@@ -251,7 +247,7 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
                         0,
                         _makePath(cake, tokenB),
                         address(this),
-                        block.timestamp + 60
+                        block.timestamp.add(60)
                     );
                 }
                 uint256 tokenAAmount = IERC20(tokenA).balanceOf(address(this));
@@ -265,7 +261,7 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
                         0,
                         0,
                         address(this),
-                        now + 60
+                        now.add(60)
                     ); 
                 }
             } 
@@ -318,16 +314,18 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
                 0,
                 _makePath(dustToken_, cake),
                 address(this),
-                block.timestamp + 60
+                block.timestamp.add(60)
             );
         }
     }
 
     function setStrategist(address strategist_) external onlyStrategist {
+        require(strategist_ != address(0), "addr 0");
         strategist = strategist_;
     }
 
     function setDevAddress(address newDev_) external onlyStrategist {
+        require(newDev_ != address(0), "addr 0");
         devAddress = newDev_;
     }
 

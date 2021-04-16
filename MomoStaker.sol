@@ -24,6 +24,9 @@ interface IMoMoMinter {
     function mintByStaker(address minter, uint256 amount_) external returns(uint256[] memory ids, uint256[] memory vals, uint256[] memory tokenIds); 
 }
 
+interface IMoMoRenter {
+    function isRenting(uint256 tokenId_) external view returns(bool);
+}
 
 contract MoMoStaker is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
@@ -122,12 +125,10 @@ contract MoMoStaker is Ownable, ReentrancyGuard {
     mapping (address => UserRewardInfo) _userRewardInfoMap;
 
     mapping (address => UserMomoCount) _userMomoCounter;
+    
+    address public momoRenter;
 
     
-    constructor() public {
-        
-    }
-
     function setRewardMgr(address addr_) external onlyOwner {
         require(address(_moboxToken) != address(0) && addr_ != rewardMgr, "invalid param");
         if (rewardMgr != address(0)) {
@@ -161,6 +162,10 @@ contract MoMoStaker is Ownable, ReentrancyGuard {
 
     function setMoMoStakerAuction(address addr_) external onlyOwner {
         stakerAuction = addr_;
+    }
+
+    function setMoMoRenter(address addr_) external onlyOwner {
+        momoRenter = addr_;
     }
 
     function setDevTeam(address addr_) external onlyOwner {
@@ -483,6 +488,7 @@ contract MoMoStaker is Ownable, ReentrancyGuard {
             for (i = 0; i < tokenIds_.length; ++i) {
                 NftOwner storage nfto = _momoIdToOwnerAndIndex[tokenIds_[i]];
                 require(user_ == address(nfto.addr), "invalid 721");
+                require(!_isRenting(tokenIds_[i]), "renting");
                 
                 (prototype, shareParams[1]) = _momoToken.getMomoSimpleByTokenId(tokenIds_[i]);
                 hashrateFixed = hashrateFixed.add(shareParams[1]);
@@ -658,6 +664,14 @@ contract MoMoStaker is Ownable, ReentrancyGuard {
 
     function tokensOfOwner(address owner_) external view returns(uint256[] memory tokenIds) {
         tokenIds = _stakingMomoArray[owner_];
+    }
+    
+    function ownerOfMoMo(uint256 tokenId_) external view returns (address) {
+        return _momoIdToOwnerAndIndex[tokenId_].addr;
+    }
+
+    function _isRenting(uint256 tokenId_) internal view returns(bool) {
+        return momoRenter == address(0) ? false : IMoMoRenter(momoRenter).isRenting(tokenId_);
     }
 }
 

@@ -21,7 +21,7 @@ interface IStrategyBNB {
 }
 
 interface IVeMobox {
-    function booster(address user_, uint256 totalShare_, uint256 wantShare_) external returns(uint256);
+    function booster(address user_, uint256 totalShare_, uint256 wantShare_, address strategy_) external returns(uint256);
 }
 
 interface IMoMoMinter {
@@ -104,10 +104,10 @@ contract MoboxFarm is Ownable, ReentrancyGuard {
         rewardHelper = addr_;
     }
 
-    function setMoMoMinter(address addr_) external onlyOwner {
+    function setMoMoMinter(address addr_) external nonReentrant onlyOwner {
         require(keyToken != address(0) && addr_ != address(0), "invalid param");
         if (momoMinter != address(0)) {
-            IERC20(keyToken).approve(momoMinter, 0);
+            require(IERC20(keyToken).approve(momoMinter, 0), "approve fail");
         }
         momoMinter = addr_;
         // When the user exchanges the key for the box, 'momoMinter' will burn the specified number of keys. This method can be used to save gas, see 'getChestBox'
@@ -120,7 +120,7 @@ contract MoboxFarm is Ownable, ReentrancyGuard {
     }
     
     // Add a new lp to the pool. Can only be called by the rewardMgr
-    function addPool(address wantToken_, uint256 allocPoint_, address strategy_) external onlyRewardMgr {
+    function addPool(address wantToken_, uint256 allocPoint_, address strategy_) external nonReentrant onlyRewardMgr {
         require(allocPoint_ <= 10000 && strategy_ != address(0), "invalid param");
         // solium-disable-next-line
         if (block.timestamp > rewardStart) {
@@ -145,7 +145,7 @@ contract MoboxFarm is Ownable, ReentrancyGuard {
         emit AllocPointChange(poolIndex, allocPoint_, totalAllocPoint);
     }
 
-    function setPool(uint256 pIndex_, address wantToken_, uint256 allocPoint_) external onlyRewardMgr {
+    function setPool(uint256 pIndex_, address wantToken_, uint256 allocPoint_) external nonReentrant onlyRewardMgr {
         PoolInfo storage pool = poolInfoArray[pIndex_];
         // wantToken_ For verification only
         require(wantToken_ != address(0) && pool.wantToken == wantToken_, "invalid pool");
@@ -283,7 +283,7 @@ contract MoboxFarm is Ownable, ReentrancyGuard {
             return 100;
         }
         uint256 sharesTotal = IStrategy(strategy_).sharesTotal();
-        return IVeMobox(veMobox).booster(user_, sharesTotal, sharesUser_);
+        return IVeMobox(veMobox).booster(user_, sharesTotal, sharesUser_, strategy_);
     }
 
     function _calcGracePeriod(uint256 gracePeriod, uint256 shareNew, uint256 shareAdd) internal view returns(uint256) {
@@ -446,6 +446,15 @@ contract MoboxFarm is Ownable, ReentrancyGuard {
             IERC20(keyToken).safeTransfer(msg.sender, keyAmount);
              emit RewardPaid(msg.sender, keyAmount);
         }
+    }
+
+    function updateRewardByVeMobox(uint256 poolIndex_) external {
+        require(msg.sender == veMobox, "invalid caller");
+        require(poolIndex_ > 0 && poolIndex_ < pIndexArray_.length, "invalid param");
+
+        uint256[] memory pIndexArray = new uint256[](1);
+        pIndexArray[0] = poolIndex_;
+        _getRward(pIndexArray, user_);
     }
 
     function getRewardFor(uint256[] memory pIndexArray_, address user_) external {
