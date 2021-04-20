@@ -448,9 +448,9 @@ contract MoboxFarm is Ownable, ReentrancyGuard {
         }
     }
 
-    function updateRewardByVeMobox(uint256 poolIndex_) external {
+    function updateRewardByVeMobox(uint256 poolIndex_, address user_) external {
         require(msg.sender == veMobox, "invalid caller");
-        require(poolIndex_ > 0 && poolIndex_ < pIndexArray_.length, "invalid param");
+        require(poolIndex_ > 0 && poolIndex_ < poolInfoArray.length, "invalid param");
 
         uint256[] memory pIndexArray = new uint256[](1);
         pIndexArray[0] = poolIndex_;
