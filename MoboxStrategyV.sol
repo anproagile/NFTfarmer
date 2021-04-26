@@ -112,7 +112,7 @@ contract MoboxStrategyV is Pausable, ReentrancyGuard {
         devFeeRate = devFeeRate_;
 
         borrowRate = 5800;
-        borrowDepth = 3;
+        borrowDepth = 0;
         baseMarginForWithdraw = margin_;
         maxMarginTriggerDeposit = margin_.mul(2);
 
@@ -136,11 +136,14 @@ contract MoboxStrategyV is Pausable, ReentrancyGuard {
         IVToken(vToken).redeemUnderlying(amount_);
     }
 
+    function _removeSupplyAll() internal {
+        uint256 vTokenAmount = IERC20(vToken).balanceOf(address(this));
+        IVToken(vToken).redeem(vTokenAmount);
+    }
 
     function _borrow(uint256 amount_) internal {
         IVToken(vToken).borrow(amount_);
     }
-
 
     function _repayBorrow(uint256 amount_) internal {
         IVToken(vToken).repayBorrow(amount_); 
@@ -181,7 +184,7 @@ contract MoboxStrategyV is Pausable, ReentrancyGuard {
         } 
         shareTotal = shareTotal.add(shareAdd);
 
-        _farm(true);
+        _farm();
 
         return shareAdd;
     }
@@ -200,16 +203,17 @@ contract MoboxStrategyV is Pausable, ReentrancyGuard {
         uint256 shareSub = wantAmount.mul(shareTotal).div(wantTotalAmount);
         shareTotal = shareTotal.sub(shareSub);
 
-        uint256 wantBalance = IERC20(wantToken).balanceOf(address(this));
+        uint256 wantBalance = wantLocal();
         if (wantBalance < wantAmount) {
-            // Withdraw more funds for preparation by the way
-            _deleverage(wantAmount.sub(wantBalance).add(baseMarginForWithdraw));
-            wantBalance = IERC20(wantToken).balanceOf(address(this));
-        }
-
-        if (wantBalance < wantAmount) {
-            wantAmount = wantBalance;
-        }
+            uint256 needRedeem = wantAmount.sub(wantBalance);
+            if (needRedeem <= uint256(venusData.totalSupply)) {
+                _removeSupply(needRedeem);
+            } else {
+                _removeSupplyAll();
+            }
+            updateBalance();
+            wantAmount = wantLocal();
+        } 
 
         if (feeRate_ > 0) {
             uint256 feeAmount = wantAmount.mul(feeRate_).div(10000);
@@ -226,11 +230,7 @@ contract MoboxStrategyV is Pausable, ReentrancyGuard {
 
         IERC20(wantToken).safeTransfer(user_, wantAmount);
 
-        if (!_farm(true)) {
-            // If the farm is not carried out, the leverage ratio needs to be monitored
-            updateBalance();
-            _deleverageUntilNotOverLevered();
-        }
+        _farm();
 
         return shareSub;
     }
@@ -242,121 +242,19 @@ contract MoboxStrategyV is Pausable, ReentrancyGuard {
         venusData.totalBorrow = SafeMathExt.safe128(totalBorrow);
     }
 
-    function _farm(bool withLeverage_) internal returns(bool) {
+    function _farm() internal {
        // Before calling this function, need to call 'updateBalance' first
         uint256 wantLocalAmount = wantLocal();
         if (wantLocalAmount < maxMarginTriggerDeposit) {
-            return false;
-        }
-
-        uint256 investAmount = wantLocalAmount.sub(baseMarginForWithdraw);
-        _leverage(investAmount, withLeverage_);
-
-        updateBalance();
-        // Check the leverage ratio, if the leverage is too high, try to deleverage
-        _deleverageUntilNotOverLevered();
-        
-        return true;
-    }
-
-    function _leverage(uint256 amount_, bool withLeverage_) internal {
-        uint256 amount = amount_;
-        if (withLeverage_) {
-            for (uint256 i = 0; i < borrowDepth; ++i) {
-                _supply(amount);
-                amount = amount.mul(borrowRate).div(10000);
-                _borrow(amount);
-            }
-        }
-        _supply(amount);
-    }
-
-    /**
-     * @dev Redeem to the desired leverage amount, then use it to repay borrow.
-     * If already over leverage, redeem max amt redeemable, then use it to repay borrow.
-     * Need call updateBalance before call this function
-     */
-    function _deleverageOnce(bool) internal {
-        uint256 balanceBeforeSupply = IERC20(wantToken).balanceOf(address(this));
-        uint256 totalBorrow = uint256(venusData.totalBorrow);
-        uint256 supplyTargeted = totalBorrow.mul(10000).div(borrowRate);
-        if (venusData.totalSupply <= supplyTargeted) {
-            // Remove deposits for repayment according to the highest leverage
-            uint256 supplyMin = totalBorrow.mul(10000).div(borrow_rate_max_hard);
-            _removeSupply(uint256(venusData.totalSupply).sub(supplyMin));
-        } else {
-            _removeSupply(uint256(venusData.totalSupply).sub(supplyTargeted));
-        }
-
-        uint256 balanceAfterRemoveSupply = IERC20(wantToken).balanceOf(address(this));
-        _repayBorrow(balanceAfterRemoveSupply.sub(balanceBeforeSupply));
-        
-        // After the operation is completed, update the balance
-        updateBalance();
-    }
-
-    /**
-     * @dev Need call updateBalance before call this function
-     */
-    function _deleverageUntilNotOverLevered() internal {
-        uint256 totalBorrow = uint256(venusData.totalBorrow);
-        uint256 supplyTargeted = totalBorrow.mul(10000).div(borrowRate);
-        while (venusData.totalSupply > 0 && venusData.totalSupply <= supplyTargeted) {
-            _deleverageOnce();
-        }
-    }
-
-    function deleverageOnce() external nonReentrant {
-        if (!recoverPublic) {
-            require(_msgSender() == strategist, "not strategist");
-        }
-
-        updateBalance();
-        _deleverageOnce();
-    }
-
-    function deleverageUntilNotOverLevered() external nonReentrant {
-        if (!recoverPublic) {
-            require(_msgSender() == strategist, "not strategist");
-        }
-
-        updateBalance();
-        _deleverageUntilNotOverLevered();
-    }
-
-    /**
-     * @dev Need call updateBalance before call this function
-     */
-    function _deleverage(uint256 minLocal_) internal {
-        _deleverageUntilNotOverLevered();
-        uint256 supplyMin = uint256(venusData.totalBorrow).mul(10000).div(borrow_rate_max_hard);
-        _removeSupply(uint256(venusData.totalSupply).sub(supplyMin));
-        uint256 wantLocalAmount = wantLocal();
-        while (wantLocalAmount < venusData.totalBorrow) {
-            if (wantLocalAmount >= minLocal_) {
-                return;
-            }
-            _repayBorrow(wantLocalAmount);
-            updateBalance();
-
-            supplyMin = uint256(venusData.totalBorrow).mul(10000).div(borrow_rate_max_hard);
-            // _removeSupplyupply won't affect totalBorrow
-            _removeSupply(uint256(venusData.totalSupply).sub(supplyMin));
-
-            wantLocalAmount = wantLocal();
-        }
-
-        if (wantLocalAmount >= minLocal_) {
             return;
         }
 
-        _repayBorrow(uint256(venusData.totalBorrow));
+        uint256 investAmount = wantLocalAmount.sub(baseMarginForWithdraw);
+        _supply(investAmount);
 
-        // Redeem all wantToken
-        uint256 vTokenAmount = IERC20(vToken).balanceOf(address(this));
-        IVToken(vToken).redeem(vTokenAmount);
+        updateBalance();
     }
-
+ 
     // _tokenA != _tokenB
     function _makePath(address _tokenA, address _tokenB) internal pure returns(address[] memory path) {
         if (_tokenA == wbnb) {
@@ -408,14 +306,14 @@ contract MoboxStrategyV is Pausable, ReentrancyGuard {
                 block.timestamp.add(60)
             );
         }
-        _farm(false);
+        _farm();
     }
 
     function farm() nonReentrant external {
         if (!recoverPublic) {
             require(_msgSender() == strategist, "not strategist");
         }
-        _farm(true);
+        _farm();
     }
 
     /**
@@ -426,14 +324,20 @@ contract MoboxStrategyV is Pausable, ReentrancyGuard {
         _;
     }
 
-    function rebalance(uint256 borrowRate_, uint256 borrowDepth_, bool withFarm_) external onlyStrategist {
+    function rebalance(uint256 borrowRate_, uint256 borrowDepth_, bool redeem_, bool withFarm_) external onlyStrategist {
         require(borrowRate_ <= 5950 && borrowDepth_ <= 5, "invalid param");
-        _deleverage(uint256(-1));
+
+        if (redeem_) {
+            // Redeem all wantToken
+            _removeSupplyAll();
+            updateBalance();
+        }
+        
         borrowRate = borrowRate_;
         borrowDepth = borrowDepth_;
 
         if (withFarm_) {
-            _farm(true);
+            _farm();
         }
     }
 

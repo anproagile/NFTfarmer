@@ -63,7 +63,7 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
     // Pancake MasterChef
     address public constant pancakeFarmer = 0x73feaa1eE314F8c655E354234017bE2193C9E24E;
     // Pancake Swap rounter
-    address public constant pancakeRouter = 0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F;
+    address public constant pancakeRouterV2 = 0x10ED43C718714eb63d5aA57B78B54704E256024E;
     uint256 public constant maxBuyBackRate = 600;   // max 6%
     uint256 public constant maxDevFeeRate = 200;    // max 2%
 
@@ -115,12 +115,12 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
 
         // MasterChef and PancakeRouter are trusted contracts
         IERC20(wantToken_).safeApprove(pancakeFarmer, uint256(-1)); 
-        IERC20(cake).safeApprove(pancakeRouter, uint256(-1));
+        IERC20(cake).safeApprove(pancakeRouterV2, uint256(-1));
         if (tokenA_ != cake) {
-            IERC20(tokenA_).safeApprove(pancakeRouter, uint256(-1));
+            IERC20(tokenA_).safeApprove(pancakeRouterV2, uint256(-1));
         }
         if (tokenB_ != cake) {
-            IERC20(tokenB_).safeApprove(pancakeRouter, uint256(-1));
+            IERC20(tokenB_).safeApprove(pancakeRouterV2, uint256(-1));
         }
     }
 
@@ -232,7 +232,7 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
             if (cakeAmount > 0) {
                 // swap cake to tokenA and tokenB
                 if (cake != tokenA) {
-                    IPancakeSwapRouter(pancakeRouter).swapExactTokensForTokensSupportingFeeOnTransferTokens(
+                    IPancakeSwapRouter(pancakeRouterV2).swapExactTokensForTokensSupportingFeeOnTransferTokens(
                         cakeAmount.div(2),
                         0,
                         _makePath(cake, tokenA),
@@ -242,7 +242,7 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
                 }
 
                 if (cake != tokenB) {
-                    IPancakeSwapRouter(pancakeRouter).swapExactTokensForTokensSupportingFeeOnTransferTokens(
+                    IPancakeSwapRouter(pancakeRouterV2).swapExactTokensForTokensSupportingFeeOnTransferTokens(
                         cakeAmount.div(2),
                         0,
                         _makePath(cake, tokenB),
@@ -253,7 +253,7 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
                 uint256 tokenAAmount = IERC20(tokenA).balanceOf(address(this));
                 uint256 tokenBAmount = IERC20(tokenB).balanceOf(address(this));
                 if (tokenAAmount > 0 && tokenBAmount > 0) {
-                    IPancakeSwapRouter(pancakeRouter).addLiquidity(
+                    IPancakeSwapRouter(pancakeRouterV2).addLiquidity(
                         tokenA,
                         tokenB,
                         tokenAAmount,
@@ -308,8 +308,8 @@ contract MoboxStrategyP is Pausable, ReentrancyGuard {
         require(dustToken_ != cake && dustToken_ != wantToken, "invalid param");
         uint256 dustAmount = IERC20(dustToken_).balanceOf(address(this));
         if (dustAmount > 0) {
-            IERC20(dustToken_).safeIncreaseAllowance(pancakeRouter, dustAmount);
-            IPancakeSwapRouter(pancakeRouter).swapExactTokensForTokensSupportingFeeOnTransferTokens(
+            IERC20(dustToken_).safeIncreaseAllowance(pancakeRouterV2, dustAmount);
+            IPancakeSwapRouter(pancakeRouterV2).swapExactTokensForTokensSupportingFeeOnTransferTokens(
                 dustAmount,
                 0,
                 _makePath(dustToken_, cake),

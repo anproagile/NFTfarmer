@@ -435,7 +435,7 @@ contract MoboxFarm is Ownable, ReentrancyGuard {
         }
 
         pool.workingSupply = SafeMathExt.safe128(uint256(pool.workingSupply).sub(oldWorkingBalance).add(newWorkingBalance));
-        emit Staked(msg.sender, pIndex_, amount_);
+        emit Withdrawn(msg.sender, pIndex_, amount_);
     }
 
     function getReward(uint256[] memory pIndexArray_) external nonReentrant {
@@ -457,7 +457,7 @@ contract MoboxFarm is Ownable, ReentrancyGuard {
         _getRward(pIndexArray, user_);
     }
 
-    function getRewardFor(uint256[] memory pIndexArray_, address user_) external {
+    function getRewardFor(uint256[] memory pIndexArray_, address user_) external nonReentrant {
         require(msg.sender == rewardHelper, "not helper");
         _getRward(pIndexArray_, user_);
 
